@@ -309,20 +309,10 @@ class UploadWorker(QObject):
         if time2finish == float("inf"):
             return "Tiempo desconocido"
         else:
-            hours = int(time2finish // 3600)
-            minutes = int((time2finish % 3600) // 60)
-            seconds = int(time2finish % 60)
 
-            if hours > 0:
-                if minutes >= 30:
-                    hours += 1
-                return f"~{hours}h"
-            elif minutes > 0:
-                if seconds >= 30:
-                    minutes += 1
-                return f"~{minutes}min"
-            else:
-                return f"~{seconds}s"
+            minutes = int(time2finish // 60)
+
+            return f"~{minutes} minutos"
 
     def handle_connection_loss(self):
         base_folder_name = os.path.basename(self.folder)
