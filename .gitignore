@@ -1,2 +1,4 @@
 # Ignora .env
 .env
+#ignorar carpeta build
+build/

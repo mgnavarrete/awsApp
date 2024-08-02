@@ -214,6 +214,7 @@ class UploadWorker(QObject):
                 break
 
             line = process.stdout.readline()
+            print(line)
             if not line and process.poll() is not None:
                 break
             if line.startswith("Completed"):
@@ -288,6 +289,141 @@ class UploadWorker(QObject):
         self.is_canceled = True
 
 
+class S3FileExplorer(QtWidgets.QWidget):
+    def __init__(self):
+        super().__init__()
+        self.current_path = ""
+        self.history = [""]
+        self.history_index = 0
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle("Explorador de S3")
+        self.setGeometry(100, 100, 800, 600)
+
+        # Layout principal
+        main_layout = QtWidgets.QVBoxLayout(self)
+
+        # Barra de herramientas
+        toolbar = QtWidgets.QHBoxLayout()
+        self.back_button = QtWidgets.QPushButton("< Atrás")
+        self.back_button.clicked.connect(self.go_back)
+        self.back_button.setEnabled(False)
+
+        self.forward_button = QtWidgets.QPushButton("Adelante >")
+        self.forward_button.clicked.connect(self.go_forward)
+        self.forward_button.setEnabled(False)
+
+        self.home_button = QtWidgets.QPushButton("Home")
+        self.home_button.clicked.connect(self.go_home)
+
+        self.refresh_button = QtWidgets.QPushButton("Refrescar")
+        self.refresh_button.clicked.connect(self.refresh)
+
+        toolbar.addWidget(self.back_button)
+        toolbar.addWidget(self.forward_button)
+        toolbar.addWidget(self.home_button)
+        toolbar.addWidget(self.refresh_button)
+
+        self.path_edit = QtWidgets.QLineEdit(self)
+        self.path_edit.setText(self.current_path)
+        self.path_edit.returnPressed.connect(self.navigate_to_path)
+        toolbar.addWidget(self.path_edit)
+
+        main_layout.addLayout(toolbar)
+
+        # Vista de árbol para mostrar el contenido de S3
+        self.tree_view = QtWidgets.QTreeWidget(self)
+        self.tree_view.setHeaderLabel("Nombre")
+        self.tree_view.itemDoubleClicked.connect(self.on_item_double_clicked)
+        main_layout.addWidget(self.tree_view)
+
+        self.setLayout(main_layout)
+        self.show()
+
+        # Cargar contenido inicial en la raíz del bucket
+        self.go_home()
+
+    def navigate_to_path(self):
+        path = self.path_edit.text().strip()
+        if path != self.current_path:
+            self.load_path(path)
+            self.history.append(path)
+            self.history_index += 1
+            self.update_navigation_buttons()
+
+    def load_path(self, path=""):
+        self.tree_view.clear()
+        self.current_path = path
+        self.path_edit.setText(path)
+
+        if path and not path.endswith("/"):
+            path += "/"
+
+        try:
+            # Obtener los iconos predeterminados
+            folder_icon = self.style().standardIcon(QtWidgets.QStyle.SP_DirIcon)
+            file_icon = self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon)
+
+            paginator = s3_client.get_paginator("list_objects_v2")
+            for page in paginator.paginate(
+                Bucket=AWS_BUCKET, Prefix=path, Delimiter="/"
+            ):
+                for folder in page.get("CommonPrefixes", []):
+                    folder_name = folder["Prefix"][len(path) :].strip("/")
+                    folder_item = QtWidgets.QTreeWidgetItem(
+                        self.tree_view, [folder_name]
+                    )
+                    folder_item.setIcon(0, folder_icon)  # Icono de carpeta
+                    folder_item.setData(0, QtCore.Qt.UserRole, folder["Prefix"])
+
+                for obj in page.get("Contents", []):
+                    file_name = obj["Key"][len(path) :]
+                    if (
+                        file_name and "/" not in file_name
+                    ):  # Es un archivo en el nivel actual
+                        file_item = QtWidgets.QTreeWidgetItem(
+                            self.tree_view, [file_name]
+                        )
+                        file_item.setIcon(0, file_icon)  # Icono de archivo
+                        file_item.setData(0, QtCore.Qt.UserRole, obj["Key"])
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", str(e))
+
+    def on_item_double_clicked(self, item, column):
+        item_data = item.data(0, QtCore.Qt.UserRole)
+        if item_data.endswith("/"):  # Es una carpeta
+            self.load_path(item_data)
+            self.history.append(item_data)
+            self.history_index += 1
+            self.update_navigation_buttons()
+
+    def go_back(self):
+        if self.history_index > 0:
+            self.history_index -= 1
+            self.load_path(self.history[self.history_index])
+            self.update_navigation_buttons()
+
+    def go_forward(self):
+        if self.history_index < len(self.history) - 1:
+            self.history_index += 1
+            self.load_path(self.history[self.history_index])
+            self.update_navigation_buttons()
+
+    def go_home(self):
+        self.load_path("")
+        self.history = [""]
+        self.history_index = 0
+        self.update_navigation_buttons()
+
+    def refresh(self):
+        self.load_path(self.current_path)
+
+    def update_navigation_buttons(self):
+        self.back_button.setEnabled(self.history_index > 0)
+        self.forward_button.setEnabled(self.history_index < len(self.history) - 1)
+
+
 class S3UploaderApp(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
@@ -342,6 +478,10 @@ class S3UploaderApp(QtWidgets.QWidget):
         self.upload_button.clicked.connect(self.upload_folder)
         btn_layout.addWidget(self.upload_button)
 
+        self.s3_dirView = QtWidgets.QPushButton("Ver directorio S3", self)
+        self.s3_dirView.clicked.connect(self.show_s3_directory)
+        btn_layout.addWidget(self.s3_dirView)
+
         main_layout.addLayout(btn_layout)
 
         self.result_list = QtWidgets.QListWidget(self)
@@ -349,6 +489,10 @@ class S3UploaderApp(QtWidgets.QWidget):
 
         self.setLayout(main_layout)
         self.show()
+
+    def show_s3_directory(self):
+        self.s3_dir_view_window = S3FileExplorer()
+        self.s3_dir_view_window.show()
 
     def closeEvent(self, event):
         if not self.close_event_handled:  # Verifica si el evento ya fue manejado
