@@ -135,6 +135,24 @@ def upload_folder():
         result_label.yview(tk.END)
         return
 
+    # Recorre los directorios y archivos en la carpeta seleccionada
+    for rootf, dirs, files in os.walk(selected_folder):
+        folder_name = os.path.basename(rootf)
+        for file_name in files:
+            # Crea el nuevo nombre del archivo con el nombre de la carpeta al final
+            base, ext = os.path.splitext(file_name)
+
+            # Comprueba si el nombre del archivo ya contiene el nombre de la carpeta
+            if not base.endswith(f"_{folder_name}"):
+                new_file_name = f"{base}_{folder_name}{ext}"
+
+                # Obtiene la ruta completa de los archivos antiguos y nuevos
+                old_path = os.path.join(rootf, file_name)
+                new_path = os.path.join(rootf, new_file_name)
+
+                # Renombra el archivo
+                os.rename(old_path, new_path)
+
     def run_upload():
         global total_data_transferred
         global total_data_size
@@ -159,7 +177,6 @@ def upload_folder():
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW,  # Esta línea evita que se abra una consola
             )
 
             # Regex para detectar los datos transferidos y el total de datos
@@ -178,8 +195,8 @@ def upload_folder():
                 if not line and process.poll() is not None:
                     break
                 if line:
-                    result_label.insert(tk.END, line)
-                    result_label.yview(tk.END)
+                    # result_label.insert(tk.END, line)
+                    # result_label.yview(tk.END)
 
                     # Solo actualizar la barra de progreso si el log tiene el formato esperado
                     match = data_transferred_regex.search(line)
@@ -203,7 +220,9 @@ def upload_folder():
                         total_data_size = total_data
                         progress = (total_data_transferred / total_data_size) * 100
                         progress_bar["value"] = progress
-                        progress_percentage_label.config(text=f"{int(progress)}%")
+                        progress_percentage_label.config(
+                            text=f"{int(progress)}% {line.strip()}"
+                        )
                         root.update_idletasks()
 
             stderr = process.stderr.read()
@@ -233,7 +252,9 @@ def upload_folder():
             upload_button.config(state="normal")
             cancel_button.config(state="disabled")
             # Ocultar la barra de progreso y la etiqueta de porcentaje al finalizar
+            progress_bar["value"] = 0
             progress_bar.grid_remove()
+            progress_percentage_label.config(text="0%")
             progress_percentage_label.grid_remove()
 
     Thread(target=run_upload).start()
@@ -341,12 +362,17 @@ h_scrollbar.config(command=result_label.xview)
 # Barra de progreso
 progress_bar = ttk.Progressbar(root, length=600, mode="determinate")
 progress_bar.grid(row=7, column=0, columnspan=2, padx=20, pady=(10, 0))
+# Reiniciar la barra de progreso al inicio
+progress_bar["value"] = 0
 # Ocultar la barra de progreso al inicio
 progress_bar.grid_remove()
 
 # Etiqueta para mostrar el porcentaje de progreso
 progress_percentage_label = tk.Label(root, text="0%")
 progress_percentage_label.grid(row=8, column=0, columnspan=2)
+# Poner porcentaje igual a 0 al inicio
+progress_percentage_label.config(text="0%")
+
 # Ocultar la etiqueta de porcentaje al inicio
 progress_percentage_label.grid_remove()
 
