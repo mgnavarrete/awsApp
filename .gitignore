@@ -2,3 +2,4 @@
 .env
 #ignorar carpeta build
 build/
+dist/
